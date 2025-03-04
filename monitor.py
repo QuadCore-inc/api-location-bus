@@ -1,32 +1,34 @@
-import pymongo
+from pymongo import MongoClient
 import time
+import os
 
-def main():
-    # Conecta ao MongoDB (banco 'crowdsourcing')
-    client = pymongo.MongoClient("mongodb://localhost:27017/")
-    db = client.crowdsourcing
-    collection = db.bus_locations
+client = MongoClient("mongodb://localhost:27017")
+db = client["transport_data"]
+buses_collection = db["buses"]
 
-    # Menu para o usuário escolher qual ônibus monitorar
-    print("Escolha o ônibus para monitorar:")
-    print("1 - onibus_1")
-    print("2 - onibus_2")
-    print("3 - onibus_3")
+def monitor_changes():
 
-    choice = None
-    while choice not in ['1', '2', '3']:
-        choice = input("Digite 1, 2 ou 3: ").strip()
-    ssid = f"onibus_{choice}"
-    print(f"Monitorando {ssid}...\n")
-
-    # Consulta contínua ao MongoDB a cada 1 segundo para exibir a localização atual do ônibus
     while True:
-        doc = collection.find_one({"ssid": ssid}, {"_id": 0})
-        if doc:
-            print(f"Localização agregada de {ssid}: {doc}")
-        else:
-            print(f"Nenhum dado disponível para {ssid}.")
-        time.sleep(1)
+        os.system('clear' if os.name == 'posix' else 'cls')
+        print("🚍 Acompanhando mudanças no MongoDB...\n")
+
+        buses = buses_collection.find()
+
+        for bus in buses:
+            print(f"🚌 Ônibus: {bus['ssid']} | Passageiros: {bus['passageiros']}")
+            
+            if bus["passageiros"] > 0:
+                print("   👥 Passageiros:")
+                for user_id, user_data in bus["usuarios"].items():
+                    print(f"     - {user_id}:")
+                    print(f"       🌍 Localização: {user_data['latitude']}, {user_data['longitude']}")
+                    print(f"       ⚡ Velocidade: {user_data['velocidade']} km/h")
+                    print(f"       📶 RSSI: {user_data['RSSI']} dBm")
+                    print(f"       🕒 Timestamp: {user_data['timestamp']}\n")
+            
+            print("-" * 60)  
+        
+        time.sleep(2) 
 
 if __name__ == "__main__":
-    main()
+    monitor_changes()
