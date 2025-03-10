@@ -4,153 +4,165 @@ import threading
 from datetime import datetime
 from pymongo import MongoClient
 import xml.etree.ElementTree as ET
-from tqdm import tqdm  
+from tqdm import tqdm
 
-##############################
-# 1) Função para ler arquivo KML
-##############################
+
 def parse_kml(file_path):
-    """
-    Lê um arquivo KML e retorna uma lista de dicionários 
-    com latitude e longitude para cada ponto da rota.
-    """
+
     tree = ET.parse(file_path)
     root = tree.getroot()
     namespace = {"kml": "http://www.opengis.net/kml/2.2"}
-    
+
     coordinates_text = root.find(".//kml:coordinates", namespace).text.strip()
     coord_list = coordinates_text.split()
-    
+
     route = []
     for coord in coord_list:
         lon_str, lat_str, *_ = coord.split(",")
         lat = float(lat_str)
         lon = float(lon_str)
         route.append({"latitude": lat, "longitude": lon})
-    
+
     return route
 
-##############################
-# 2) Conexão com MongoDB
-##############################
 client = MongoClient("mongodb://localhost:27017")
 db = client["transport_data"]
-buses_collection = db["buses"]
 
-##############################
-# 3) Função que atualiza/cria o documento do ônibus no MongoDB
-##############################
-def update_bus_document(bus_id, bus_ssid, base_lat, base_lon, num_passengers):
-    """
-    Atualiza (ou cria) um documento de ônibus no MongoDB.
-    """
-    if num_passengers == 0:
-        buses_collection.update_one(
-            {"_id": bus_id},
-            {
-                "$set": {
-                    "ssid": bus_ssid,
-                    "passageiros": 0
-                },
-                "$unset": {"usuarios": ""}
-            },
-            upsert=True
-        )
-    else:
-        usuarios_subdocs = {}
+
+def get_bus_collection(ssid):
+
+    return db[f"bus_{ssid}"]
+
+
+def create_or_update_user(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
+
+    collection = get_bus_collection(bus_ssid)
+
+    
+    existing_user = collection.find_one({"_id": user_id})
+
+    
+    frame_time = datetime.utcnow().isoformat()
+    frame_data = {
+        "time": frame_time,
+        "latitude": latitude,
+        "longitude": longitude,
+        "velocidade": velocidade,
+        "RSSI": rssi
+    }
+
+    if not existing_user:
         
-        for i in range(1, num_passengers + 1):
-            user_id = f"user_{i}"
-            lat = round(base_lat + random.uniform(-0.0002, 0.0002), 6)
-            lon = round(base_lon + random.uniform(-0.0002, 0.0002), 6)
-            velocidade = round(random.uniform(20, 80), 2)
-            rssi = random.randint(-90, -40)
-            timestamp = datetime.utcnow().isoformat()
-            
-            usuarios_subdocs[user_id] = {
-                "latitude": lat,
-                "longitude": lon,
-                "velocidade": velocidade,
-                "RSSI": rssi,
-                "timestamp": timestamp
+        collection.insert_one({
+            "_id": user_id,
+            "ssid": bus_ssid,
+            "final_position": {
+                "latitude": latitude,
+                "longitude": longitude
+            },
+            "timestamp": frame_time,
+            "user_movimentation": {
+                "time_frame_1": frame_data
             }
+        })
+    else:
         
-        buses_collection.update_one(
-            {"_id": bus_id},
+        movement_key = f"time_frame_{len(existing_user['user_movimentation']) + 1}"
+
+        collection.update_one(
+            {"_id": user_id},
             {
                 "$set": {
-                    "ssid": bus_ssid,
-                    "passageiros": num_passengers,
-                    "usuarios": usuarios_subdocs
+                    "final_position": {
+                        "latitude": latitude,
+                        "longitude": longitude
+                    },
+                    "timestamp": frame_time,
+                    f"user_movimentation.{movement_key}": frame_data
                 }
-            },
-            upsert=True
+            }
         )
 
-##############################
-# 4) Simulação do Ônibus percorrendo a rota KML com controle de permanência
-##############################
+
+def remove_user(bus_ssid, user_id):
+
+    collection = get_bus_collection(bus_ssid)
+    collection.delete_one({"_id": user_id})
+
+
+
 def simulate_bus(bus_id, bus_ssid, route):
-    """
-    Simula o ônibus percorrendo a lista de coordenadas da rota (KML).
-    Controla o tempo mínimo de permanência dos passageiros antes de mudar a quantidade.
-    """
     route_len = len(route)
     route_index = 0
-    min_passenger_time = 60  # Tempo mínimo antes de mudar o número de passageiros (em segundos)
-    last_passenger_change_time = time.time()  # Guarda o tempo da última alteração
+    min_passenger_time = 60  
+    last_passenger_change_time = time.time()
 
-    # Inicializa a quantidade de passageiros
-    num_passengers = random.randint(0, 5)
+    active_users = []
+    current_passengers = 0  
 
-    # Criando barra de progresso para esse ônibus
+
     progress_bar = tqdm(total=route_len, desc=f"🚌 {bus_ssid} em progresso", position=bus_id, leave=False)
 
     while route_index < route_len:
         current_point = route[route_index]
         base_lat = current_point["latitude"]
         base_lon = current_point["longitude"]
-        
-        # Se passou mais de 1 minuto desde a última mudança, podemos alterar o número de passageiros
-        if time.time() - last_passenger_change_time >= min_passenger_time:
-            num_passengers = random.randint(0, 5)  # Nova quantidade de passageiros
-            last_passenger_change_time = time.time()  # Atualiza o tempo da última alteração
-        
-        update_bus_document(bus_id, bus_ssid, base_lat, base_lon, num_passengers)
-        
-        # Atualiza a barra de progresso
-        progress_bar.update(1)
-        progress_bar.set_postfix(Passageiros=num_passengers)
-        
-        route_index += 1
-        time.sleep(1)
 
-    # Finaliza a barra de progresso e exibe conclusão
+        if time.time() - last_passenger_change_time >= min_passenger_time:
+            new_passengers = random.randint(0, 5)
+
+            if new_passengers < current_passengers:
+                diff = current_passengers - new_passengers
+                for _ in range(diff):
+                    user_id_removed = active_users.pop()  
+                    remove_user(bus_ssid, user_id_removed)
+            elif new_passengers > current_passengers:
+                diff = new_passengers - current_passengers
+                for i in range(diff):
+                    new_user_id = f"user_{current_passengers + i + 1}"
+                    active_users.append(new_user_id)
+
+            current_passengers = new_passengers
+            last_passenger_change_time = time.time()
+
+        for user_id in active_users:
+            lat = round(base_lat + random.uniform(-0.0002, 0.0002), 6)
+            lon = round(base_lon + random.uniform(-0.0002, 0.0002), 6)
+            velocidade = round(random.uniform(20, 80), 2)
+            rssi = random.randint(-90, -40)
+
+            create_or_update_user(bus_ssid, user_id, lat, lon, velocidade, rssi)
+
+        progress_bar.update(1)
+        progress_bar.set_postfix(Passageiros=current_passengers)
+
+        route_index += 1
+        time.sleep(1) 
+
+    for user_id in active_users:
+        remove_user(bus_ssid, user_id)
+
     progress_bar.close()
     print(f"✅ [{bus_ssid}] Rota concluída! Simulação encerrada.")
 
-##############################
-# 5) Rotina principal
-##############################
+
 if __name__ == "__main__":
-    # Lê o arquivo KML da rota
+    
     kml_file = "rota.kml"
     route_data = parse_kml(kml_file)
-    
-    # Criamos os 3 ônibus com suas respectivas threads
+
     buses = [
         {"bus_id": 1, "ssid": "circular"},
-        {"bus_id": 2, "ssid": "SIMA"},
-        {"bus_id": 3, "ssid": "circulinho"}
+        {"bus_id": 2, "ssid": "SIMA"}
     ]
-    
+
     threads = []
     for bus in buses:
         t = threading.Thread(target=simulate_bus, args=(bus["bus_id"], bus["ssid"], route_data))
         threads.append(t)
         t.start()
-    
+
     for t in threads:
         t.join()
-    
+
     print("🚦 Todas as simulações foram concluídas!")
