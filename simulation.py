@@ -1,11 +1,10 @@
 import random
 import time
 import threading
+import requests  
 from datetime import datetime
-from pymongo import MongoClient
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
-
 
 def parse_kml(file_path):
 
@@ -25,81 +24,47 @@ def parse_kml(file_path):
 
     return route
 
-client = MongoClient("mongodb://localhost:27017")
-db = client["transport_data"]
+def create_or_update_user_in_api(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
 
-
-def get_bus_collection(ssid):
-
-    return db[f"bus_{ssid}"]
-
-
-def create_or_update_user(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
-
-    collection = get_bus_collection(bus_ssid)
-
-    
-    existing_user = collection.find_one({"_id": user_id})
-
-    
-    frame_time = datetime.utcnow().isoformat()
-    frame_data = {
-        "time": frame_time,
+    url = "http://localhost:5000/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
+    payload = {
+        "bus_ssid": bus_ssid,
+        "user_id": user_id,
         "latitude": latitude,
         "longitude": longitude,
         "velocidade": velocidade,
-        "RSSI": rssi
+        "rssi": rssi,
+        "timestamp": datetime.utcnow().isoformat()
     }
+    try:
+        response = requests.post(url, json=payload, timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERRO] Falha ao enviar dados para a API: {e}")
 
-    if not existing_user:
-        
-        collection.insert_one({
-            "_id": user_id,
-            "ssid": bus_ssid,
-            "final_position": {
-                "latitude": latitude,
-                "longitude": longitude
-            },
-            "timestamp": frame_time,
-            "user_movimentation": {
-                "time_frame_1": frame_data
-            }
-        })
-    else:
-        
-        movement_key = f"time_frame_{len(existing_user['user_movimentation']) + 1}"
+def remove_user_in_api(bus_ssid, user_id):
 
-        collection.update_one(
-            {"_id": user_id},
-            {
-                "$set": {
-                    "final_position": {
-                        "latitude": latitude,
-                        "longitude": longitude
-                    },
-                    "timestamp": frame_time,
-                    f"user_movimentation.{movement_key}": frame_data
-                }
-            }
-        )
-
-
-def remove_user(bus_ssid, user_id):
-
-    collection = get_bus_collection(bus_ssid)
-    collection.delete_one({"_id": user_id})
-
+    url = "http://localhost:5000/api/v1/movements"  
+    payload = {
+        "bus_ssid": bus_ssid,
+        "user_id": user_id
+    }
+    try:
+        response = requests.delete(url, json=payload, timeout=5)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"[ERRO] Falha ao remover usuário na API: {e}")
 
 
 def simulate_bus(bus_id, bus_ssid, route):
+
     route_len = len(route)
     route_index = 0
     min_passenger_time = 60  
     last_passenger_change_time = time.time()
 
     active_users = []
-    current_passengers = 0  
-
+    current_passengers = 0
 
     progress_bar = tqdm(total=route_len, desc=f"🚌 {bus_ssid} em progresso", position=bus_id, leave=False)
 
@@ -114,8 +79,9 @@ def simulate_bus(bus_id, bus_ssid, route):
             if new_passengers < current_passengers:
                 diff = current_passengers - new_passengers
                 for _ in range(diff):
-                    user_id_removed = active_users.pop()  
-                    remove_user(bus_ssid, user_id_removed)
+                    if active_users:
+                        user_id_removed = active_users.pop()  
+                        remove_user_in_api(bus_ssid, user_id_removed)
             elif new_passengers > current_passengers:
                 diff = new_passengers - current_passengers
                 for i in range(diff):
@@ -131,23 +97,22 @@ def simulate_bus(bus_id, bus_ssid, route):
             velocidade = round(random.uniform(20, 80), 2)
             rssi = random.randint(-90, -40)
 
-            create_or_update_user(bus_ssid, user_id, lat, lon, velocidade, rssi)
+            create_or_update_user_in_api(bus_ssid, user_id, lat, lon, velocidade, rssi)
 
         progress_bar.update(1)
         progress_bar.set_postfix(Passageiros=current_passengers)
 
         route_index += 1
-        time.sleep(1) 
+        time.sleep(1)  
 
     for user_id in active_users:
-        remove_user(bus_ssid, user_id)
+        remove_user_in_api(bus_ssid, user_id)
 
     progress_bar.close()
     print(f"✅ [{bus_ssid}] Rota concluída! Simulação encerrada.")
 
-
 if __name__ == "__main__":
-    
+
     kml_file = "rota.kml"
     route_data = parse_kml(kml_file)
 
