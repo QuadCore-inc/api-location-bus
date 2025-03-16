@@ -1,11 +1,19 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
+from constants import API_HOST
 import time  
 
 app = Flask(__name__)
 
-client = MongoClient("mongodb://localhost:27017")
-db = client["transport_data"]
+# client = MongoClient("mongodb://localhost:27017")
+# db = client["transport_data"]
+
+connection_string = "mongodb+srv://QuadCore:AViuL9s9QSgkCBX7@buson.rhgqz.mongodb.net/transport_data?retryWrites=true&w=majority"
+client = MongoClient(connection_string)
+db = client["BusON_Crowdsourcing"]
+
+# Verifique as coleções disponíveis
+print(db.list_collection_names())
 
 def get_bus_collection(ssid):
     return db[f"bus_{ssid}"]
@@ -59,6 +67,9 @@ def create_or_update_user(bus_ssid, user_id, latitude, longitude, speed, rssi, h
             }
         )
 
+def remove_user(bus_ssid, user_id):
+    collection = get_bus_collection(bus_ssid)
+    collection.delete_one({"_id": user_id})
 
 @app.route("/api/v1/movements", methods=["POST"])
 def create_or_update_movement():
@@ -96,10 +107,6 @@ def create_or_update_movement():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-def remove_user(bus_ssid, user_id):
-    collection = get_bus_collection(bus_ssid)
-    collection.delete_one({"_id": user_id})
-
 @app.route("/api/v1/movements", methods=["DELETE"])
 def remove_movement():
     data = request.get_json()
@@ -118,5 +125,9 @@ def remove_movement():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route("/api/v1/health", methods=["GET"])
+def health_check():
+    return jsonify({"status": "healthy"}), 200
+
 if __name__ == "__main__":
-    app.run(host='200.239.93.127', debug=True, port=5000)
+    app.run(host=API_HOST, debug=True, port=5000)
