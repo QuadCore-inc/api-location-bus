@@ -77,7 +77,7 @@ def create_or_update_bus(bus_ssid, latitude, longitude, speed, rssi, heading, ti
             }
         )
 
-
+# ne branch for simulation
 def remove_bus(bus_ssid):
     db["buses_locations"].delete_one({"_id": bus_ssid})
 
