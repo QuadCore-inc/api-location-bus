@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import xml.etree.ElementTree as ET
 import time
+import pytz
 
 # Caminho do arquivo KML
 arquivo_kml = "rota.kml"
@@ -25,68 +26,70 @@ for linestring in root.findall(".//{http://www.opengis.net/kml/2.2}LineString/{h
 connection_string = "mongodb+srv://QuadCore:AViuL9s9QSgkCBX7@buson.rhgqz.mongodb.net/transport_data?retryWrites=true&w=majority"
 client = MongoClient(connection_string)
 db = client["BusON_Crowdsourcing"]
-collection = "buses_locations"
 
 
-def create_or_update_bus(bus_ssid, latitude, longitude, timestamp):
+def format_bus_document(ssid):
+    splited_bus_ssid = ssid.split("/")
+    
+    bus_line = f"line_{splited_bus_ssid[0]}"
+    bus_id = f"bus_{splited_bus_ssid[1]}"
+    document_id = f"{bus_line}/{bus_id}"
+    return db["buses_locations"], document_id, bus_line, bus_id, ssid
 
 
-    existing_user = db[collection].find_one({"_id": bus_ssid})
+def get_brazil_timestamp():
+    brasil_tz = pytz.timezone("America/Sao_Paulo")
+    return datetime.now(brasil_tz).strftime('%Y-%m-%d %H:%M:%S %z')
+
+def create_or_update_bus(bus_ssid, latitude, longitude, speed, rssi, heading, timestamp):
+    collection, document_id, bus_line, bus_id, ssid = format_bus_document(bus_ssid)
+
+    existing_bus = collection.find_one({"_id": document_id})
     frame_data = {
         "time": timestamp,
         "latitude": latitude,
         "longitude": longitude,
-        "speed": 0,
-        "heading": 0,
+        "speed": speed,
+        "RSSI": rssi,
+        "heading": heading
     }
 
-    if not existing_user:
-        
-        db[collection].insert_one({
-            "_id": bus_ssid,
-            "last_update": {
-                "time": timestamp,
-                "latitude": latitude,
-                "longitude": longitude,
-                "speed": 0,
-                "heading": 0,
-            },
-            "bus_movimentation": {
+    if not existing_bus:
+        collection.insert_one({
+            "_id": document_id,
+            "bus_line": bus_line,
+            "bus_id": bus_id,
+            "ssid": ssid,
+            "last_update": frame_data,
+            "user_movimentation": {
                 "time_frame_1": frame_data
             }
         })
     else:
-
-        movement_key = f"time_frame_{len(existing_user['bus_movimentation']) + 1}"
-
-        db[collection].update_one(
-            {"_id": bus_ssid},
+        movement_key = f"time_frame_{len(existing_bus['user_movimentation']) + 1}"
+        collection.update_one(
+            {"_id": document_id},
             {
                 "$set": {
-                    "last_update": {
-                        "time": timestamp,
-                        "latitude": latitude,
-                        "longitude": longitude,
-                        "speed": 0,
-                        "heading": 0,
-                    },
-                    f"bus_movimentation.{movement_key}": frame_data
+                    "last_update": frame_data,
+                    f"user_movimentation.{movement_key}": frame_data
                 }
             }
         )
 
 
-def remove_user(bus_ssid):
-    db[collection].delete_one({"_id": bus_ssid})
+def remove_bus(bus_ssid):
+    db["buses_locations"].delete_one({"_id": bus_ssid})
 
 def main():
-    remove_user("bus_sima")
-    time.sleep(2)
+    bus_ssid = "circular_ufpa/circular"
+    remove_bus(bus_ssid)
+    time.sleep(1)
     while True:
         for timestep in range(len(coords_list)):
             coord = coords_list[timestep]
-            print(f"Sending new location! {coord}")
-            create_or_update_bus("bus_circular", coord[2], coord[1], timestep)
+            print(f"Sending new location {coord} of ssid {bus_ssid}")
+            create_or_update_bus(bus_ssid, coord[2], coord[1], 0, 0, 0, timestep)
             time.sleep(1)
 
 

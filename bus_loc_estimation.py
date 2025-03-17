@@ -2,8 +2,9 @@ from pymongo import MongoClient
 import time
 
 # Conexão com MongoDB
-client = MongoClient("mongodb://localhost:27017")
-db = client["transport_data"]
+connection_string = "mongodb+srv://QuadCore:AViuL9s9QSgkCBX7@buson.rhgqz.mongodb.net/transport_data?retryWrites=true&w=majority"
+client = MongoClient(connection_string)
+db = client["BusON_Crowdsourcing"]
 collection = "buses_locations"
 
 # Função para criar ou atualizar a localização do ônibus
@@ -33,7 +34,6 @@ def create_or_update_bus(bus_ssid, latitude, longitude, speed, heading, timestam
                 "speed": speed,  
                 "heading": heading,  
             },
-            "timestamp": timestamp,
             "bus_movimentation": {
                 "time_frame_1": frame_data
             }
@@ -60,18 +60,18 @@ def create_or_update_bus(bus_ssid, latitude, longitude, speed, heading, timestam
         )
 
 # Função para remover o usuário (se necessário)
-def remove_user(bus_ssid):
+def remove_bus(bus_ssid):
     db[collection].delete_one({"_id": bus_ssid})
 
 # Função principal que executa o código periodicamente
 def main():
     # Exemplo de remoção de um bus (caso seja necessário)
-    remove_user("bus_ESP32_AP")
+    bus_ssid = "bus_circulinho"
+    remove_bus(bus_ssid)
     time.sleep(2)
     
-    bus_ssid = "ESP32_AP"
-    bus_collection = f"bus_{bus_ssid}" 
-    print(f"Iniciando atualizações do ônibus bus_ESP32_AP")
+    bus_collection = bus_ssid
+    print(f"Iniciando atualizações do ônibus {bus_ssid}")
     
     while True:
         bus_data = db[bus_collection].find_one({"_id": "user_kauan"})
