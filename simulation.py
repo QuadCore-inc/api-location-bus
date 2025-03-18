@@ -5,6 +5,8 @@ import requests
 from datetime import datetime
 import xml.etree.ElementTree as ET
 from tqdm import tqdm
+from constants import API_HOST
+import math
 
 def parse_kml(file_path):
 
@@ -24,16 +26,17 @@ def parse_kml(file_path):
 
     return route
 
-def create_or_update_user_in_api(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
+def create_or_update_user_via_api(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
 
-    url = "http://localhost:5000/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
+    url = F"http://{API_HOST}:5000/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id,
         "latitude": latitude,
         "longitude": longitude,
-        "velocidade": velocidade,
+        "speed": velocidade,
         "rssi": rssi,
+        "heading": 0,
         "timestamp": datetime.utcnow().isoformat()
     }
     try:
@@ -42,9 +45,9 @@ def create_or_update_user_in_api(bus_ssid, user_id, latitude, longitude, velocid
     except requests.RequestException as e:
         print(f"[ERRO] Falha ao enviar dados para a API: {e}")
 
-def remove_user_in_api(bus_ssid, user_id):
+def remove_user_via_api(bus_ssid, user_id):
 
-    url = "http://localhost:5000/api/v1/movements"  
+    url = f"http://{API_HOST}:5000/api/v1/movements"  
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id
@@ -54,6 +57,20 @@ def remove_user_in_api(bus_ssid, user_id):
         response.raise_for_status()
     except requests.RequestException as e:
         print(f"[ERRO] Falha ao remover usuário na API: {e}")
+        
+def generate_nearby_location(base_lat, base_lon, radius_meters=10):
+    # Fator de conversão aproximado: 1 grau de latitude ≈ 111.32 km (111320 metros)
+    meters_per_degree = 111320
+
+    # Converter metros para graus
+    delta_lat = (random.gauss(0, 1) * radius_meters) / meters_per_degree
+    delta_lon = (random.gauss(0, 1) * radius_meters) / (meters_per_degree * math.cos(math.radians(base_lat)))
+
+    # Gerar nova localização dentro do raio
+    lat = round(base_lat + delta_lat, 10)
+    lon = round(base_lon + delta_lon, 10)
+
+    return lat, lon
 
 
 def simulate_bus(bus_id, bus_ssid, route):
@@ -81,7 +98,7 @@ def simulate_bus(bus_id, bus_ssid, route):
                 for _ in range(diff):
                     if active_users:
                         user_id_removed = active_users.pop()  
-                        remove_user_in_api(bus_ssid, user_id_removed)
+                        remove_user_via_api(bus_ssid, user_id_removed)
             elif new_passengers > current_passengers:
                 diff = new_passengers - current_passengers
                 for i in range(diff):
@@ -92,12 +109,11 @@ def simulate_bus(bus_id, bus_ssid, route):
             last_passenger_change_time = time.time()
 
         for user_id in active_users:
-            lat = round(base_lat + random.uniform(-0.0002, 0.0002), 6)
-            lon = round(base_lon + random.uniform(-0.0002, 0.0002), 6)
-            velocidade = round(random.uniform(20, 80), 2)
+            new_lat, new_lon = generate_nearby_location(base_lat, base_lon)
+            velocidade = round(random.uniform(10, 20), 2)
             rssi = random.randint(-90, -40)
 
-            create_or_update_user_in_api(bus_ssid, user_id, lat, lon, velocidade, rssi)
+            create_or_update_user_via_api(bus_ssid, user_id, new_lat, new_lon, velocidade, rssi)
 
         progress_bar.update(1)
         progress_bar.set_postfix(Passageiros=current_passengers)
@@ -106,7 +122,7 @@ def simulate_bus(bus_id, bus_ssid, route):
         time.sleep(1)  
 
     for user_id in active_users:
-        remove_user_in_api(bus_ssid, user_id)
+        remove_user_via_api(bus_ssid, user_id)
 
     progress_bar.close()
     print(f"✅ [{bus_ssid}] Rota concluída! Simulação encerrada.")
@@ -117,8 +133,8 @@ if __name__ == "__main__":
     route_data = parse_kml(kml_file)
 
     buses = [
-        {"bus_id": 1, "ssid": "circular"},
-        {"bus_id": 2, "ssid": "SIMA"}
+        {"bus_id": 1, "ssid": "circular_ufpa/sima"},
+        # {"bus_id": 2, "ssid": "circular_ufpa/sima"}
     ]
 
     threads = []
