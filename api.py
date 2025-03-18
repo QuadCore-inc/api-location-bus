@@ -1,6 +1,5 @@
 from flask import Flask, request, jsonify
 from pymongo import MongoClient
-from constants import API_HOST
 import time
 import pytz
 from datetime import datetime
