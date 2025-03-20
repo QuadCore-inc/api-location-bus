@@ -28,7 +28,7 @@ def parse_kml(file_path):
 
 def create_or_update_user_via_api(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
 
-    url = F"http://{API_HOST}:5000/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
+    url = F"https://buson-api-websocket-1.onrender.com/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id,
@@ -47,7 +47,7 @@ def create_or_update_user_via_api(bus_ssid, user_id, latitude, longitude, veloci
 
 def remove_user_via_api(bus_ssid, user_id):
 
-    url = f"http://{API_HOST}:5000/api/v1/movements"  
+    url = f"https://buson-api-websocket-1.onrender.com/api/v1/movements"  
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id
@@ -77,7 +77,7 @@ def simulate_bus(bus_id, bus_ssid, route):
 
     route_len = len(route)
     route_index = 0
-    min_passenger_time = 60  
+    min_passenger_time = 10  
     last_passenger_change_time = time.time()
 
     active_users = []
@@ -91,7 +91,7 @@ def simulate_bus(bus_id, bus_ssid, route):
         base_lon = current_point["longitude"]
 
         if time.time() - last_passenger_change_time >= min_passenger_time:
-            new_passengers = random.randint(0, 5)
+            new_passengers = random.randint(1, 20)
 
             if new_passengers < current_passengers:
                 diff = current_passengers - new_passengers
