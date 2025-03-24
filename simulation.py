@@ -28,7 +28,7 @@ def parse_kml(file_path):
 
 def create_or_update_user_via_api(bus_ssid, user_id, latitude, longitude, velocidade, rssi):
 
-    url = F"https://buson-api-websocket-1.onrender.com/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
+    url = F"http://13.217.126.32:5000/api/v1/movements"  # <-- Ajuste conforme a rota e porta da sua API
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id,
@@ -47,7 +47,7 @@ def create_or_update_user_via_api(bus_ssid, user_id, latitude, longitude, veloci
 
 def remove_user_via_api(bus_ssid, user_id):
 
-    url = f"https://buson-api-websocket-1.onrender.com/api/v1/movements"  
+    url = f"http://13.217.126.32:5000/api/v1/movements"  
     payload = {
         "bus_ssid": bus_ssid,
         "user_id": user_id
